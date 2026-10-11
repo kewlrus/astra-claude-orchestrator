@@ -1,5 +1,5 @@
 # <Task ID> implementation report
-STATUS: <ready_for_review | blocked | failed>
+STATUS: <ready_for_review | needs_permission | blocked | failed>
 Workspace/baseline: <actual path and baseline>
 Session ID / run directory: <CLI-observed ID and runner artifact path, if available>
 
@@ -14,6 +14,11 @@ Session ID / run directory: <CLI-observed ID and runner artifact path, if availa
 
 ## Resume checkpoint
 <Completed internal steps, unfinished work, last failure, exact next action.>
+
+## Permission requests to Astra
+<None, or each request's unique ID, exact command, absolute cwd, reason and
+expected effects. Include the same requests in the structured permission_requests
+array. Requests are not approvals; save the checkpoint and yield for a decision.>
 
 ---
 # Astra-only review record

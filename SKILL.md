@@ -1,6 +1,6 @@
 ---
 name: astra-claude-orchestrator
-description: Plan and execute substantial multi-file builds, features, migrations, and refactors with Astra as orchestrator and Claude Code Opus 5.5 as the local CLI implementation worker. Use for phased planning and delegated build execution, including existing Superpowers or GSD plans. Skip trivial edits and explicitly single-agent tasks. Workers must not invoke this orchestration skill.
+description: Use only when the user explicitly requests $astra-claude-orchestrator or names this skill for use. Plan and execute substantial multi-file builds, features, migrations, and refactors with Astra as orchestrator and Claude Code Opus 5.5 as the local CLI implementation worker, including existing Superpowers or GSD plans. Do not activate based on task complexity alone. Skip trivial edits and explicitly single-agent tasks. Workers must not invoke this orchestration skill.
 ---
 
 # Astra plans. Claude Code implements. Astra accepts.
@@ -15,14 +15,21 @@ description: Plan and execute substantial multi-file builds, features, migration
 | Основная сессия | выбранная пользователем Astra; ожидаемый alias `gpt-6-astra` |
 | Исполнитель | локальный процесс Claude Code через `scripts/run_phase.py` |
 | Модель исполнителя | Opus 5.5, `claude-opus-5-5` |
-| Effort исполнителя | настройки Claude Code; явный override только по решению пользователя |
+| Effort исполнителя | обязательно явный `--effort medium`; другое значение только по указанию пользователя |
 | Провайдер и авторизация | существующая разрешённая конфигурация Claude Code |
 | Параллелизм | один пишущий исполнитель по умолчанию |
 
 Не меняй root model, её effort, global subagent defaults, URL, заголовки,
-credentials, sandbox или permissions ради выполнения задачи. Используй точный
+credentials, sandbox или глобальные permissions ради выполнения задачи.
+Astra может добавить узкое разрешение `--allow-tool` для конкретного продолжения
+после проверки запроса исполнителя по `references/permissions.md`; это не bypass
+и не расширение пользовательского поручения. Используй точный
 ID `claude-opus-5-5`, без плавающего alias `opus` и автоматического fallback.
 Не подменяй модель молча ни на Astra, ни на другого исполнителя.
+Для Opus 5.5 при каждом запуске, включая resume и повтор после сбоя, обязательно
+передавай `--effort medium`, если пользователь не задал иное. Не полагайся на
+настройки Claude Code и не наследуй effort Astra. Указанный пользователем override
+передавай явно и сохраняй при продолжении той же задачи, пока пользователь его не изменит.
 
 ## Supported orchestration workflow
 
@@ -40,6 +47,11 @@ one worker, one process wait, one batched acceptance review, and one final respo
 This is a workflow shape, not a reason to skip evidence or stop before the result is
 correct. Add Astra work only for a concrete blocker or architecture, security, or
 production-risk concern. Do not create root activity merely to observe progress.
+
+Token economy must preserve every required stage, artifact and acceptance check.
+Reuse reference text already read in the current context; reread it when changed
+or no longer available. Avoid printing identical report representations and full
+CLI help repeatedly. This does not narrow source review or required evidence.
 
 ## 1. Orient and classify
 
@@ -113,6 +125,15 @@ Read `references/execution.md`.
 Не выдумывай сигнатуру инструмента, slash-команду или несуществующий аргумент.
 Не меняй model/effort молча и не запускай нативный Codex child вместо Claude Code.
 
+В sandbox-host заранее учитывай доступ Claude к существующей авторизации,
+сети и хранилищу сессий. Если для этого окружения уже выявлено ограничение,
+запрашивай штатное разрешение host на запуск runner вне sandbox, не повторяя
+заведомо нерабочий запуск. Это разрешение на конкретный процесс, а не изменение
+глобальных sandbox/permissions или bypass в Claude. При `Not logged in` до
+API-вызова и несохранённой сессии следуй разделу «Sandbox host и ранняя ошибка
+авторизации» в `references/runner.md`: ID в metadata ещё не означает, что resume
+возможен. Не запускай второго writer, пока первый процесс не завершён.
+
 Give the worker the full task brief plus the minimum shared context, required
 contracts, task ID, working directory, baseline, and relevant dependency outputs.
 Use a new Claude session for a new bundle; never claim its context is empty:
@@ -126,17 +147,45 @@ independent work and each has a real, verified separate workspace. See execution
 reference for dirty-tree, contract, and integration rules. No recursive agents.
 
 Let the worker complete its internal implementation, testing, debugging, and
-routine UI-validation loop. Use the longest practical process wait and allow it to
-finish. Do not poll with status/list calls, request progress updates, interrupt a
-healthy run, or perform overlapping repository work while the worker owns the
-bundle. A wait timeout alone is not evidence that the worker is stuck. Set a
+routine UI-validation loop. Announce dispatch once, then use the host's completion
+notification or longest permitted process wait. Wait silently: do not send repeated
+"still running / awaiting results" messages without new information. The runner
+monitors its child locally; do not return control to Astra on a periodic heartbeat.
+Do not poll progress with status/list calls, request updates, interrupt a healthy
+run, or perform overlapping repository work while the worker owns the bundle.
+Higher-priority host wait/communication requirements still apply; this skill does
+not change them or promise notifications the host cannot deliver.
+
+After a lost/interrupted wait or context recovery, use `scripts/check_run.py`
+once for the exact run/session before waiting again. This lifecycle recovery is
+not progress polling; do not turn it into a scheduled model loop. Terminal metadata
+ends report waiting even when no worker report exists. A stale heartbeat means
+unknown, not a dead child or permission for a second writer. See
+`references/runner.md` for failure handling and the read-only check command.
+A wait timeout alone is not evidence that the worker is stuck. Set a
 task-appropriate budget and checkpoint rule rather than assuming every job fits a
 fixed time estimate. Resume the same worker for one consolidated review-fix cycle;
-start a fresh context only for an unrelated bundle. Use `--resume-from` with the
+start a fresh context for an unrelated bundle, or for the documented early-start
+recovery when no resumable session exists. Use `--resume-from` with the
 previous run directory and a new output directory; never select an unrelated
 conversation through `--continue`. A host wait timeout is not a runner deadline.
 
 ## 6. Review the actual result
+
+Сначала обработай terminal outcome runner. При API/CLI/protocol error, timeout
+или interruption сообщи причину и пути к evidence; сохрани частичные изменения,
+не ожидай обязательного отчёта от аварийно завершившегося агента и не объявляй
+его работу принятой. HTTP 429 не запускает автоматический resume/fallback.
+При `cleanup_error`/unknown не запускай нового writer до проверки процессов.
+Только `ready_for_review` передаёт результат в обычную приёмку ниже.
+
+Если runner вернул `needs_permission` (exit 4), сначала прочитай
+`permission-request.json` и `references/permissions.md`. Исполнитель передаёт
+Astra точную команду, cwd, цель и ожидаемые эффекты. Astra принимает решение в
+пределах уже разрешённой задачи, сохраняет его в brief и продолжает ту же сессию
+через `--resume-from` с явно выбранными allow rules. Это отдельный обмен по
+разрешениям, не цикл исправлений по ревью. Не считай запрос провалом реализации,
+не одобряй команды автоматически и не перекладывай обычные решения на пользователя.
 
 Read `references/review.md`. Worker completion means **ready for review**, not
 accepted. Astra reviews the actual patch against the captured baseline, including

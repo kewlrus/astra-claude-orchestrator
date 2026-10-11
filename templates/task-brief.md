@@ -41,8 +41,12 @@ UI/runtime checks: <observable states or why not applicable.>
 Continue the in-scope test/code/fix loop autonomously. Report missing contracts,
 unsafe conflicts, unavailable environment or repeated failures instead of inventing
 requirements. No nested agents/CLIs, no permission bypass, no commits/merges/deploys.
+If a command needs permission, return needs_permission with permission_requests:
+unique id, exact command, absolute cwd, reason and expected_effects. Save the
+checkpoint and yield to Astra without retrying or hiding the command in a script.
+Astra will decide and may resume this session; never assume approval.
 
 ## Required return
 Use task-report.md. Include actual commands/exits, changed files, unresolved risks
-and the resume checkpoint. STATUS is ready_for_review, blocked, or failed; only
+and the resume checkpoint. STATUS is ready_for_review, needs_permission, blocked, or failed; only
 Astra can accept the task.

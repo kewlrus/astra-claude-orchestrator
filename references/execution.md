@@ -28,6 +28,10 @@ does not mutate shared planning/status files assigned to the coordinator. Give
 its task report a unique output path. Do not conflate worker instructions with
 hard filesystem access controls: host permissions remain authoritative, and Claude
 Code has its own tool policy. The runner uses `dontAsk` with explicitly allowed tools.
+Missing command permissions use the request/decision/resume protocol in
+`permissions.md`. This is an explicit handoff to Astra, not progress polling or
+a review-fix cycle. The child returns promptly with its checkpoint; Astra must
+wait for that process to exit before resuming with a reviewed decision.
 
 ## Optional: two genuinely independent writers
 
@@ -60,10 +64,17 @@ Capture progress at meaningful resumable boundaries, not every tool call. Where 
 host turn limit interrupts it, resume the same task with its checkpoint; do not
 promise that any model or harness can run indefinitely.
 
-Use the host's process wait and the runner's `--resume-from` continuation. Choose the
-longest practical wait. Do not use repeated list/status calls as heartbeats, request
-play-by-play updates, interrupt a healthy run, or duplicate its repository work.
-A wait timeout alone is not a blocker. When a worker is genuinely blocked, Astra
+Use the host's completion notification/process wait and the runner's `--resume-from`
+continuation. Choose the longest permitted wait. Announce dispatch once and stay
+silent until completion, an error, a permission request or a material state change;
+do not send repeated no-news updates. Respect higher-priority host requirements.
+The runner's local heartbeat writes do not call a model or print progress. Do not
+use repeated list/status calls as heartbeats, request play-by-play updates,
+interrupt a healthy run, or duplicate its repository work.
+If the wait is lost/interrupted or context is recovered, inspect the exact run
+once with `check_run.py` as described in `runner.md`. Terminal metadata is sufficient
+to stop waiting for a missing worker report; unknown liveness is not permission
+to launch another writer. A wait timeout alone is not a blocker. When a worker is genuinely blocked, Astra
 resolves the contract or environment question and sends one targeted update. For
 rejected work, batch all concrete findings and send one correction request to the
 same Claude session in a new run directory. Default to one correction cycle. Recheck only the affected behavior and
